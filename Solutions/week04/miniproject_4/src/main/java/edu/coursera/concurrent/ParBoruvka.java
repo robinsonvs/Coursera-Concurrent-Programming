@@ -1,13 +1,12 @@
 package edu.coursera.concurrent;
 
-import edu.coursera.concurrent.AbstractBoruvka;
-import edu.coursera.concurrent.SolutionToBoruvka;
-import edu.coursera.concurrent.boruvka.Edge;
 import edu.coursera.concurrent.boruvka.Component;
+import edu.coursera.concurrent.boruvka.Edge;
 
-import java.util.Queue;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A parallel implementation of Boruvka's algorithm to compute a Minimum
@@ -28,7 +27,45 @@ public final class ParBoruvka extends AbstractBoruvka<ParBoruvka.ParComponent> {
     @Override
     public void computeBoruvka(final Queue<ParComponent> nodesLoaded,
             final SolutionToBoruvka<ParComponent> solution) {
-        throw new UnsupportedOperationException();
+
+        //throw new UnsupportedOperationException();
+
+        ParComponent current = null;
+
+        while (!nodesLoaded.isEmpty()) {
+            current = nodesLoaded.poll();
+
+            if (current == null || !current.lock.tryLock()) {
+                continue;
+            }
+
+            if (current.isDead) {
+                current.lock.unlock();
+                continue;
+            }
+
+            Edge<ParComponent> minEdge = current.getMinEdge();
+            if (minEdge == null){
+                current.lock.unlock();
+                solution.setSolution(current);
+                break;
+            }
+
+            final ParComponent other = minEdge.getOther(current);
+            if (!other.lock.tryLock()) {
+                current.lock.unlock();
+                nodesLoaded.add(current);
+                continue;
+            }
+
+            other.isDead = true;
+            current.merge(other, minEdge.weight());
+            current.lock.unlock();
+            other.lock.unlock();
+
+            nodesLoaded.add(current);
+        }
+
     }
 
     /**
@@ -42,6 +79,8 @@ public final class ParBoruvka extends AbstractBoruvka<ParBoruvka.ParComponent> {
          *  it.
          */
         public final int nodeId;
+
+        public final ReentrantLock lock = new ReentrantLock();
 
         /**
          * List of edges attached to this component, sorted by weight from least
